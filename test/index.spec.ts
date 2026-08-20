@@ -1,6 +1,7 @@
 import { env, createMessageBatch } from "cloudflare:test";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import worker, { type CloudflareEvent } from "../src/index";
+import worker from "../src/index";
+import type { CloudflareEvent } from "../src/types";
 import { extractBuildError } from "../src/helpers";
 
 // =============================================================================
@@ -97,11 +98,11 @@ function createQueueMessage(
 describe("Workers Builds Notifications", () => {
 	const originalFetch = globalThis.fetch;
 	let fetchCalls: Array<{ url: string; init?: RequestInit }>;
-	let slackPayloads: any[];
+	let telegramPayloads: Array<Record<string, unknown>>;
 
 	beforeEach(() => {
 		fetchCalls = [];
-		slackPayloads = [];
+		telegramPayloads = [];
 	});
 
 	afterEach(() => {
@@ -119,9 +120,9 @@ describe("Workers Builds Notifications", () => {
 			const url = input.toString();
 			fetchCalls.push({ url, init });
 
-			// Capture Slack payloads for assertions
-			if (url.includes("hooks.slack.com") && init?.body) {
-				slackPayloads.push(JSON.parse(init.body as string));
+			// Capture Telegram payloads for assertions
+			if (url.includes("api.telegram.org") && init?.body) {
+				telegramPayloads.push(JSON.parse(init.body as string));
 			}
 
 			return handler(url, init);
@@ -143,8 +144,8 @@ describe("Workers Builds Notifications", () => {
 						JSON.stringify({ result: { subdomain: "my-account" } }),
 					);
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -177,11 +178,12 @@ describe("Workers Builds Notifications", () => {
 
 			await worker.queue(batch, env);
 
-			expect(slackPayloads).toHaveLength(1);
-			const payload = slackPayloads[0];
-			expect(payload.blocks).toBeDefined();
-			expect(payload.blocks[0].text.text).toContain("Production Deploy");
-			expect(payload.blocks[0].text.text).toContain("test-worker");
+			expect(telegramPayloads).toHaveLength(1);
+			const payload = telegramPayloads[0];
+			expect(payload.chat_id).toBe("-1001234567890");
+			expect(payload.parse_mode).toBe("HTML");
+			expect(payload.text).toContain("Production Deploy");
+			expect(payload.text).toContain("test-worker");
 		});
 
 		it("should send preview deploy notification for feature branch", async () => {
@@ -193,8 +195,8 @@ describe("Workers Builds Notifications", () => {
 						}),
 					);
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -227,9 +229,10 @@ describe("Workers Builds Notifications", () => {
 
 			await worker.queue(batch, env);
 
-			expect(slackPayloads).toHaveLength(1);
-			const payload = slackPayloads[0];
-			expect(payload.blocks[0].text.text).toContain("Preview Deploy");
+			expect(telegramPayloads).toHaveLength(1);
+			const payload = telegramPayloads[0];
+			expect(payload.text).toContain("Preview Deploy");
+			expect(payload.text).toContain("https://preview-abc123.workers.dev");
 		});
 	});
 
@@ -255,8 +258,8 @@ describe("Workers Builds Notifications", () => {
 						}),
 					);
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -290,16 +293,11 @@ describe("Workers Builds Notifications", () => {
 
 			await worker.queue(batch, env);
 
-			expect(slackPayloads).toHaveLength(1);
-			const payload = slackPayloads[0];
-			expect(payload.blocks[0].text.text).toContain("Build Failed");
-
-			// Should have error in code block
-			const errorBlock = payload.blocks.find((b: any) =>
-				b.text?.text?.includes("```"),
-			);
-			expect(errorBlock).toBeDefined();
-			expect(errorBlock.text.text).toContain("ERROR");
+			expect(telegramPayloads).toHaveLength(1);
+			const payload = telegramPayloads[0];
+			expect(payload.text).toContain("Build Failed");
+			expect(payload.text).toContain("<pre>");
+			expect(payload.text).toContain("ERROR");
 		});
 
 		it("should extract first error from logs, not last", async () => {
@@ -319,8 +317,8 @@ describe("Workers Builds Notifications", () => {
 						}),
 					);
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -340,10 +338,7 @@ describe("Workers Builds Notifications", () => {
 
 			await worker.queue(batch, env);
 
-			const errorBlock = slackPayloads[0].blocks.find((b: any) =>
-				b.text?.text?.includes("```"),
-			);
-			expect(errorBlock.text.text).toContain("First error");
+			expect(telegramPayloads[0].text).toContain("First error");
 		});
 
 		it("should include View Logs button with dashboard URL", async () => {
@@ -355,8 +350,8 @@ describe("Workers Builds Notifications", () => {
 						}),
 					);
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -382,11 +377,10 @@ describe("Workers Builds Notifications", () => {
 
 			await worker.queue(batch, env);
 
-			const payload = slackPayloads[0];
-			expect(payload.blocks[0].accessory).toBeDefined();
-			expect(payload.blocks[0].accessory.text.text).toBe("View Logs");
-			expect(payload.blocks[0].accessory.url).toContain("dash.cloudflare.com");
-			expect(payload.blocks[0].accessory.url).toContain("account-xyz");
+			const payload = telegramPayloads[0];
+			expect(payload.text).toContain("View Logs");
+			expect(payload.text).toContain("dash.cloudflare.com");
+			expect(payload.text).toContain("account-xyz");
 		});
 	});
 
@@ -397,8 +391,8 @@ describe("Workers Builds Notifications", () => {
 	describe("Cancelled Builds", () => {
 		it("should send cancellation notification (cancelled spelling)", async () => {
 			mockFetch((url) => {
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -418,14 +412,14 @@ describe("Workers Builds Notifications", () => {
 
 			await worker.queue(batch, env);
 
-			expect(slackPayloads).toHaveLength(1);
-			expect(slackPayloads[0].blocks[0].text.text).toContain("Build Cancelled");
+			expect(telegramPayloads).toHaveLength(1);
+			expect(telegramPayloads[0].text).toContain("Build Cancelled");
 		});
 
 		it("should not fetch logs for cancelled builds", async () => {
 			mockFetch((url) => {
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -455,15 +449,15 @@ describe("Workers Builds Notifications", () => {
 	// =========================================================================
 
 	describe("Error Handling", () => {
-		it("should handle missing SLACK_WEBHOOK_URL gracefully", async () => {
+		it("should handle missing Telegram configuration gracefully", async () => {
 			const event = createMockEvent();
 			const messages = [createQueueMessage(event)];
 			const batch = createMessageBatch("builds-event-subscriptions", messages);
 
-			const envWithoutSlack = { ...env, SLACK_WEBHOOK_URL: "" };
+			const envWithoutTelegram = { ...env, TELEGRAM_BOT_TOKEN: "" };
 
 			// Should not throw
-			await worker.queue(batch, envWithoutSlack as typeof env);
+			await worker.queue(batch, envWithoutTelegram as typeof env);
 		});
 
 		it("should handle API errors gracefully and still send notification", async () => {
@@ -471,8 +465,8 @@ describe("Workers Builds Notifications", () => {
 				if (url.includes("api.cloudflare.com")) {
 					throw new Error("Network error");
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -483,7 +477,7 @@ describe("Workers Builds Notifications", () => {
 
 			// Should not throw and should still send notification
 			await worker.queue(batch, env);
-			expect(slackPayloads).toHaveLength(1);
+			expect(telegramPayloads).toHaveLength(1);
 		});
 	});
 
@@ -502,8 +496,8 @@ describe("Workers Builds Notifications", () => {
 						JSON.stringify({ result: { subdomain: "test" } }),
 					);
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -527,10 +521,8 @@ describe("Workers Builds Notifications", () => {
 			await worker.queue(batch, env);
 
 			// Only the succeeded event should trigger a notification
-			expect(slackPayloads).toHaveLength(1);
-			expect(slackPayloads[0].blocks[0].text.text).toContain(
-				"Production Deploy",
-			);
+			expect(telegramPayloads).toHaveLength(1);
+			expect(telegramPayloads[0].text).toContain("Production Deploy");
 		});
 	});
 
@@ -549,8 +541,8 @@ describe("Workers Builds Notifications", () => {
 						JSON.stringify({ result: { subdomain: "test" } }),
 					);
 				}
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				return new Response("Not found", { status: 404 });
 			});
@@ -570,7 +562,7 @@ describe("Workers Builds Notifications", () => {
 
 			// Should not throw
 			await worker.queue(batch, env);
-			expect(slackPayloads).toHaveLength(1);
+			expect(telegramPayloads).toHaveLength(1);
 		});
 	});
 
@@ -581,8 +573,8 @@ describe("Workers Builds Notifications", () => {
 	describe("Fallback Handling", () => {
 		it("should send notification without URLs when CLOUDFLARE_API_TOKEN is missing", async () => {
 			mockFetch((url) => {
-				if (url.includes("hooks.slack.com")) {
-					return new Response("ok");
+				if (url.includes("api.telegram.org")) {
+					return Response.json({ ok: true });
 				}
 				if (url.includes("api.cloudflare.com")) {
 					throw new Error("Should not call Cloudflare API without token");
@@ -598,10 +590,8 @@ describe("Workers Builds Notifications", () => {
 			await worker.queue(batch, envWithoutToken as typeof env);
 
 			// Should still send notification without API token
-			expect(slackPayloads).toHaveLength(1);
-			expect(slackPayloads[0].blocks[0].text.text).toContain(
-				"Production Deploy",
-			);
+			expect(telegramPayloads).toHaveLength(1);
+			expect(telegramPayloads[0].text).toContain("Production Deploy");
 		});
 	});
 });

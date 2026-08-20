@@ -7,7 +7,8 @@
 // =============================================================================
 
 export interface Env {
-	SLACK_WEBHOOK_URL: string;
+	TELEGRAM_BOT_TOKEN: string;
+	TELEGRAM_CHAT_ID: string;
 	CLOUDFLARE_API_TOKEN: string;
 }
 

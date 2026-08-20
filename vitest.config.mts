@@ -15,7 +15,8 @@ export default defineConfig({
 				},
 				// Provide test bindings
 				bindings: {
-					SLACK_WEBHOOK_URL: "https://hooks.slack.com/test",
+					TELEGRAM_BOT_TOKEN: "test-bot-token",
+					TELEGRAM_CHAT_ID: "-1001234567890",
 					CLOUDFLARE_API_TOKEN: "test-api-token",
 				},
 			},

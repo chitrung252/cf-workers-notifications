@@ -1,8 +1,8 @@
 /**
- * Cloudflare Workers Builds → Slack Notifications
+ * Cloudflare Workers Builds → Telegram Notifications
  *
  * This worker consumes build events from a Cloudflare Queue and sends
- * notifications to Slack with:
+ * notifications to Telegram with:
  * - Preview/Live URLs for successful builds
  * - Error messages for failed builds
  * - Cancellation notices for cancelled builds
@@ -15,12 +15,12 @@
 import type { Env, CloudflareEvent } from "./types";
 import { getBuildStatus } from "./helpers";
 import { fetchBuildUrls, fetchBuildLogs } from "./api";
-import { buildSlackPayload, sendSlackNotification } from "./slack";
+import { buildTelegramMessage, sendTelegramNotification } from "./telegram";
 
 export default {
 	async queue(batch: MessageBatch<CloudflareEvent>, env: Env): Promise<void> {
-		if (!env.SLACK_WEBHOOK_URL) {
-			console.error("SLACK_WEBHOOK_URL is not configured");
+		if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
+			console.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured");
 			for (const message of batch.messages) {
 				message.ack();
 			}
@@ -57,9 +57,12 @@ export default {
 					logs = await fetchBuildLogs(event, env);
 				}
 
-				// Build and send Slack notification
-				const payload = buildSlackPayload(event, previewUrl, liveUrl, logs);
-				await sendSlackNotification(env.SLACK_WEBHOOK_URL, payload);
+				const text = buildTelegramMessage(event, previewUrl, liveUrl, logs);
+				await sendTelegramNotification(
+					env.TELEGRAM_BOT_TOKEN,
+					env.TELEGRAM_CHAT_ID,
+					text,
+				);
 
 				message.ack();
 			} catch (error) {
