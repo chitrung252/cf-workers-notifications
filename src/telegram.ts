@@ -36,14 +36,28 @@ function link(label: string, url: string | null): string {
 		: escapeHtml(label);
 }
 
-function buildContext(event: CloudflareEvent): string[] {
+function truncate(value: string, maxLength: number): string {
+	return value.length > maxLength
+		? `${value.substring(0, maxLength - 1)}…`
+		: value;
+}
+
+function buildDetails(event: CloudflareEvent, environment?: string): string[] {
 	const meta = event.payload?.buildTriggerMetadata;
-	const lines: string[] = [];
+	const workerName = event.source?.workerName || meta?.repoName || "Worker";
+	const lines = [`<b>Project:</b> <code>${escapeHtml(workerName)}</code>`];
+
+	if (environment) lines.push(`<b>Environment:</b> ${environment}`);
 
 	if (meta?.branch) lines.push(`<b>Branch:</b> <code>${escapeHtml(meta.branch)}</code>`);
 	if (meta?.commitHash) {
 		const shortHash = meta.commitHash.substring(0, 7);
 		lines.push(`<b>Commit:</b> ${link(shortHash, getCommitUrl(event))}`);
+	}
+	if (meta?.commitMessage) {
+		lines.push(
+			`<b>Message:</b> ${escapeHtml(truncate(meta.commitMessage.trim(), 500))}`,
+		);
 	}
 
 	const author = extractAuthorName(meta?.author);
@@ -60,33 +74,45 @@ export function buildTelegramMessage(
 	logs: string[],
 ): string {
 	const status = getBuildStatus(event);
-	const workerName = escapeHtml(event.source?.workerName || "Worker");
 	const dashboardUrl = getDashboardUrl(event);
 	const lines: string[] = [];
+	let actionUrl: string | null = null;
+	let actionLabel = "Open build details";
+	let environment: string | undefined;
 
 	if (status.isSucceeded) {
 		const production = isProductionBranch(
 			event.payload?.buildTriggerMetadata?.branch,
 		);
+		environment = production ? "Production" : "Preview";
 		lines.push(
-			`${production ? "✅ <b>Production Deploy</b>" : "✅ <b>Preview Deploy</b>"}\n<b>${workerName}</b>`,
+			production
+				? "✅ <b>Production deployment succeeded</b>"
+				: "✅ <b>Preview deployment succeeded</b>",
 		);
-		const targetUrl = production ? liveUrl || dashboardUrl : previewUrl || dashboardUrl;
-		if (targetUrl) lines.push(link(production ? "View Worker" : "View Preview", targetUrl));
+		actionUrl = production ? liveUrl || dashboardUrl : previewUrl || dashboardUrl;
+		actionLabel = production ? "Open production deployment" : "Open preview deployment";
 	} else if (status.isFailed) {
-		lines.push(`❌ <b>Build Failed</b>\n<b>${workerName}</b>`);
-		if (dashboardUrl) lines.push(link("View Logs", dashboardUrl));
+		environment = isProductionBranch(
+			event.payload?.buildTriggerMetadata?.branch,
+		)
+			? "Production"
+			: "Preview";
+		lines.push("❌ <b>Build failed</b>");
+		actionUrl = dashboardUrl;
+		actionLabel = "Open build logs";
 	} else if (status.isCancelled) {
-		lines.push(`⚠️ <b>Build Cancelled</b>\n<b>${workerName}</b>`);
-		if (dashboardUrl) lines.push(link("View Build", dashboardUrl));
+		lines.push("⚠️ <b>Build cancelled</b>");
+		actionUrl = dashboardUrl;
 	} else {
 		lines.push(`📢 ${escapeHtml(event.type || "Unknown event")}`);
 	}
 
-	lines.push(...buildContext(event));
+	lines.push("", ...buildDetails(event, environment));
 	if (status.isFailed) {
-		lines.push(`<pre>${escapeHtml(extractBuildError(logs))}</pre>`);
+		lines.push("", "<b>Error</b>", `<pre>${escapeHtml(extractBuildError(logs))}</pre>`);
 	}
+	if (actionUrl) lines.push("", `🔗 ${link(actionLabel, actionUrl)}`);
 
 	return lines.join("\n");
 }

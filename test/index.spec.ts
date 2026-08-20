@@ -182,8 +182,9 @@ describe("Workers Builds Notifications", () => {
 			const payload = telegramPayloads[0];
 			expect(payload.chat_id).toBe("-1001234567890");
 			expect(payload.parse_mode).toBe("HTML");
-			expect(payload.text).toContain("Production Deploy");
+			expect(payload.text).toContain("Production deployment succeeded");
 			expect(payload.text).toContain("test-worker");
+			expect(payload.text).toContain("Deploy to production");
 		});
 
 		it("should send preview deploy notification for feature branch", async () => {
@@ -231,7 +232,7 @@ describe("Workers Builds Notifications", () => {
 
 			expect(telegramPayloads).toHaveLength(1);
 			const payload = telegramPayloads[0];
-			expect(payload.text).toContain("Preview Deploy");
+			expect(payload.text).toContain("Preview deployment succeeded");
 			expect(payload.text).toContain("https://preview-abc123.workers.dev");
 		});
 	});
@@ -295,7 +296,7 @@ describe("Workers Builds Notifications", () => {
 
 			expect(telegramPayloads).toHaveLength(1);
 			const payload = telegramPayloads[0];
-			expect(payload.text).toContain("Build Failed");
+			expect(payload.text).toContain("Build failed");
 			expect(payload.text).toContain("<pre>");
 			expect(payload.text).toContain("ERROR");
 		});
@@ -378,7 +379,7 @@ describe("Workers Builds Notifications", () => {
 			await worker.queue(batch, env);
 
 			const payload = telegramPayloads[0];
-			expect(payload.text).toContain("View Logs");
+			expect(payload.text).toContain("Open build logs");
 			expect(payload.text).toContain("dash.cloudflare.com");
 			expect(payload.text).toContain("account-xyz");
 		});
@@ -413,7 +414,7 @@ describe("Workers Builds Notifications", () => {
 			await worker.queue(batch, env);
 
 			expect(telegramPayloads).toHaveLength(1);
-			expect(telegramPayloads[0].text).toContain("Build Cancelled");
+			expect(telegramPayloads[0].text).toContain("Build cancelled");
 		});
 
 		it("should not fetch logs for cancelled builds", async () => {
@@ -522,7 +523,9 @@ describe("Workers Builds Notifications", () => {
 
 			// Only the succeeded event should trigger a notification
 			expect(telegramPayloads).toHaveLength(1);
-			expect(telegramPayloads[0].text).toContain("Production Deploy");
+			expect(telegramPayloads[0].text).toContain(
+				"Production deployment succeeded",
+			);
 		});
 	});
 
@@ -591,7 +594,9 @@ describe("Workers Builds Notifications", () => {
 
 			// Should still send notification without API token
 			expect(telegramPayloads).toHaveLength(1);
-			expect(telegramPayloads[0].text).toContain("Production Deploy");
+			expect(telegramPayloads[0].text).toContain(
+				"Production deployment succeeded",
+			);
 		});
 	});
 });
